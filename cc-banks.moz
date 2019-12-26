@@ -1,0 +1,309 @@
+// == cc-banks ==
+// author: Juan Segovia
+// created: 12/2019
+
+
+@OnLoad
+  SetShortName {ccbanks}
+  shift = 0
+  save = 0
+  layout = 1
+  ShowLayout layout 
+  
+  bank1 = [0,1,2,3,11,12,13,14]
+  bank2 = [7,8,9,10,18,19,20,21]
+  bank1cc = [0,1,2,3,4,5,6,7]
+  bank2cc = [8,9,10,11,12,13,14,15]
+  chan = 9
+  bankOffset = 8
+  if Unassigned bank1save
+    bank1save = []
+  endif
+  
+  if Unassigned bank2save
+    bank2save = []
+  endif
+  
+  LabelKnobs {Bank 1 |                  - settings -                  | Bank 2} 
+  for i = 0 to 7
+    LabelKnob bank1[i], (i + 1), { cc: }, bank1cc[i]
+    LabelKnob bank2[i], (i + 1), { cc: }, bank2cc[i]
+  endfor
+  
+  // 5 is used to send stored values manually.
+  LabelKnob 5, { update } 
+  SetKnobValue 5, 0 
+  
+  // set the value for the midi out
+  LabelKnob 16, {midi ch: }, (chan + 1) 
+  SetKnobValue 16, 75
+  
+  // edit bank 1
+  selection1 = 0
+  selection1cc = bank1cc[selection1]
+  LabelKnob 4, {knob: }, (selection1 + 1)
+  SetKnobValue 4, 0 
+  LabelKnob 15, {cc: }, (selection1cc)
+  SetKnobValue 15, selection1cc  
+  
+  // edit bank 2
+  selection2 = 0
+  selection2cc = bank2cc[selection2]
+  LabelKnob 6, {knob: }, (selection2 + 1)
+  SetKnobValue 6, 0 
+  LabelKnob 17, {cc: }, (selection2cc)
+  SetKnobValue 17, selection2cc  
+  
+  // pads
+  call @UpdatePads
+  
+  // comment if you prefer to updaye manually once the plugin is loaded.
+  call @Update
+@End
+
+
+
+@OnKnobChange
+  // set the midi output
+  if LastKnob = 16
+    val = GetKnobValue 16
+    chan = round ((val * 15) / 127)
+    LabelKnob 16, {midi ch: }, (chan + 1) 
+  endif
+  
+  // select a knob for cc assignment
+  // bank 1
+  if LastKnob = 4
+    val = GetKnobValue 4
+    selection1 = round ((val * 7) / 127)
+    LabelKnob 4, {knob: }, (selection1 + 1) 
+    selection1cc = bank1cc[selection1]
+    LabelKnob 15, {cc: }, (selection1cc)
+    SetKnobValue 15, selection1cc  
+  endif
+  // bank 2
+  if LastKnob = 6
+    val = GetKnobValue 6
+    selection2 = round ((val * 7) / 127)
+    LabelKnob 6, {knob: }, (selection2 + 1) 
+    selection2cc = bank2cc[selection2]
+    LabelKnob 17, {cc: }, (selection2cc)
+    SetKnobValue 17, selection2cc  
+  endif
+  
+  // set the new knob cc on selected knob
+  // bank 1
+  if LastKnob = 15
+    selection1cc = round (GetKnobValue 15)
+    bank1cc[selection1] = selection1cc
+    LabelKnob 15, {cc: }, (selection1cc)
+  endif
+  // bank 2
+  if LastKnob = 17
+    selection2cc = round (GetKnobValue 17)
+    bank2cc[selection2] = selection2cc
+    LabelKnob 17, {cc: }, (selection2cc)
+  endif
+  
+  // tHe knobs
+  for i = 0 to 7
+    LabelKnob bank1[i], (i + 1), { cc: }, bank1cc[i]
+    LabelKnob bank2[i], (i + 1), { cc: }, bank2cc[i]
+    if LastKnob = bank1[i]
+      value = GetKnobValue bank1[i] 
+      SendMIDICC chan, bank1cc[i], value
+    endif
+    if LastKnob = bank2[i]
+      value = GetKnobValue bank2[i] 
+      SendMIDICC chan, bank2cc[i], value
+    endif
+  endfor
+  
+  if LastKnob = 5
+    if shift = 0
+      call @Update
+    else
+      layout = 4
+      shift = 0
+      labelknobs {| Bank 1 (1 - 4) |}
+      ShowLayout layout
+    endif
+    SetKnobValue 5, 0 
+  endif
+@End
+
+
+
+@Update
+  // send values
+  for i = 0 to 7
+    value1 = GetKnobValue bank1[i] 
+    value2 = GetKnobValue bank2[i] 
+    SendMIDICC chan, bank1cc[i], value1
+    SendMIDICC chan, bank2cc[i], value2
+  endfor
+@End
+
+
+
+@OnShiftDown
+  shift = 1
+@End
+
+
+
+@OnShiftUp
+  if shift = 1
+    shift = 0
+    if save = 0
+      call @ChangeLayout
+    else
+       save = 0
+    endif
+  endif
+@End
+
+
+
+@ChangeLayout
+  if layout = 1
+    layout = 2
+    labelknobs {| Bank 1 (1 - 4) |}
+  else
+    layout = 1
+    LabelKnobs {Bank 1 |                  - settings -                  | Bank 2}  
+  endif
+  ShowLayout layout
+@End
+
+
+
+@UpdatePads
+  LabelPads {memory}
+  for i = 0 to 7
+    ColorPad i, 1
+  endfor
+  for i = 8 to 15
+    ColorPad i, 2
+  endfor
+@End
+
+
+
+@OnPadDown
+  if shift = 1
+    save = 1
+    for i = 0 to 7
+      index = i + (LastPad * bankOffset)
+      if LastPad < 8
+        bank1save[index] = GetKnobValue bank1[i] 
+      else
+        bank2save[index] = GetKnobValue bank2[i] 
+      endif
+    endfor
+    LabelPad LastPad ,{ 💾 }
+  else
+    for i = 0 to 7
+      index = i + (LastPad * bankOffset)
+      if LastPad < 8
+        SetKnobValue bank1[i] , bank1save[index]
+      else
+        SetKnobValue bank2[i] , bank2save[index]
+      endif
+    endfor
+    call @Update 
+  endif
+@End
+
+
+
+@Description
+== CC-BANKS ==
+
+HELP
+
+  To bring this up while loaded. Hold "Shift" and double-tap the "Update" Knob.
+
+DESCRIPTION
+
+ This is a convenience tool which allows you to easily map knobs to cc messages.
+
+  I use this tool with my external gear in order to provide me a simple way to save cc
+  value states within my AUM projects. I use an APC40 which has 2 banks of 8 encoders
+  each, the problem those encoders are fixed to specific cc values. By mapping the apc
+  to Moziacs knobs I can easily change the cc which the knob sends to my external synths.
+  This is extremely useful because most of my hardware doesnt have any sort of iOS
+  editor which I can use.
+
+  An added bonus is that Moziac saves state, so once you endit your values you can save
+  your Moziac patch and your values will be easily recalled. 
+
+  To prevent accidental cc changes, the path wont autosend current values when first
+  loaded, but you can force an update by tapping the "update" knob on the Mozaic GUI.
+  
+INSTRUCTIONS
+
+  == views ==
+  
+  Use the "Shift" button to switch between knob view and bank save (pad) view.
+
+  == Setting the cc value for a knob ==
+  
+  Use the knob labeled "knob: <1>" located at either side of the "Update" knob to
+  select which knob is being updated, the values will scale from 1 - 8. This value
+  indicates the currently selected knob for that bank. The left knob is for bank1 and
+  the right knob is for bank2.
+  
+  Use the knobs labeld "cc: <0>" just below it (the ones next to the "midi ch: <n>" knob)
+  to select which cc that knob will send messages to.
+  
+  == Midi Out ==
+  
+  Use the "midi ch: <n>" knob to select which midi channel you will send data out on.
+  This is useful if you wish to re-map/convert/fix the midi out channel.
+  
+  == Manual Update ==
+  
+  If you commented out the following from the @OnLoad function
+  
+  call @Update
+  
+  You can manually send the cc values out by double-tapping the "Update Knob"
+  
+  == help ==
+  
+  To bring this up while loaded. Hold "Shift" and double-tap the "Update" Knob.
+  
+  == Saving a bank ==
+  
+  I've included 2 memory banks of 8 each so you save each bank independenty. To save
+  a bank simply hold "shift" and then press a pad while holding. An icon will appear
+  indicating that your set has been saved.
+  
+  == Recalling a saved bank ==
+  
+  Simply press a pad with the floppy image on it. When the code is freshly loaded there
+  will be NO presets saved. If you press the button then all your setting will default
+  to 0.
+  
+THANKS
+
+  If you like what I do contact me at juanlittledevil@gmail.com. I'm always up for
+  collaborative work. Enjoy!
+  
+  -- Juan
+  
+@End
+
+
+
+
+
+
+
+
+
+
+
+
+
