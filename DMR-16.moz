@@ -5,7 +5,7 @@
 // find the code here: https://patchstorage.com/pad-manager-include/
 // Description: This is a utility for quickly remapping incoming notes from a drum machine,
 //              keyboard, or any other controller and setting the outgoing channel and note.
-// version: 1.0
+// version: 1.1
 // TODO: Allow the out notes to be set via incoming midi notes using the midi learn functionality. 
   
 
@@ -141,7 +141,7 @@
     endfor
   else
     chanSelect = 0
-    call @UpdatePadLabels
+    call @MIDILearnMode
   endif
 @End
 
@@ -210,13 +210,11 @@
   if learning = 1 and padSelected < 16
     inNote[padSelected] = MIDINote
     inChan[padSelected] = MIDIChannel
-    learning = 0
-    padSelected = 16
-    call @ClearKnobLabels
     call @UpdatePadLabels
+    call @MIDILearn
   else
     for i = 0 to 15
-      if inNote[i] = MIDINote
+      if inNote[i] = MIDINote and inChan[i] = MIDIChannel
         FlashPad i
         // send the midi note on message but on the chan+note defined.
         // Velocity is just passed through.
@@ -410,6 +408,7 @@ How to:
   1. double-tap the SHIFT button.
   2. select a pad. the pad will light up in red.
   3. press on a note on your MIDI keyboard.
+  4. double-tap the SHIFT button once more to exit MIDI Learn.
   
   Setting the Out Note
   
