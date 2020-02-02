@@ -1,0 +1,448 @@
+// Drum Machine Remapper
+// Author: Juan Segovia using -ki's shift handling code.
+// Special Thanks:
+// Special thanks to "-ki" for the amazing handling functions enabling the pad/shift gestures.
+// find the code here: https://patchstorage.com/pad-manager-include/
+// Description: This is a utility for quickly remapping incoming notes from a drum machine,
+//              keyboard, or any other controller and setting the outgoing channel and note.
+// version: 1.0
+// TODO: Allow the out notes to be set via incoming midi notes using the midi learn functionality. 
+  
+
+@OnLoad
+  layout = 2
+  ShowLayout layout
+  SetShortName {DMR-16}
+  LabelKnobs { }
+  LabelPads {Drum Machine Remapper "DMR-16"}
+  shift = 0
+  learning = 0
+  chanSelect = 0
+  padSelected = 16
+  
+  NORMAL_COLOR = 0 // softwhite
+  LEARN_MODE_COLOR = 4 // light blue
+  LEARNING_COLOR = 7 // magenta
+  CHAN_SELECT_COLOR = 3 // green
+  
+  pmAnalyseTime = 200           // Max delay for a single tap
+  pmExcludePads = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15] // Pads that will always do single taps
+  pmExcludeCnt  = 16             // Number of pads with single taps
+  pmManageTimer = YES           // NO when using own timer
+  pmTickInterval = 50           // Timer interval
+  
+  if Unassigned inNote
+    inNote = []
+    for i = 0 to 7
+      inNote[i] = 36 + i + 8
+      inNote[i+8] = 36 + i
+    endfor
+  endif
+    
+  if Unassigned outNote
+    outNote = []
+    for i = 0 to 7
+      outNote[i] = 36 + i + 8
+      outNote[i+8] = 36 + i
+    endfor
+  endif
+  
+  if Unassigned inChan
+    inChan = []
+    FillArray inChan, 9, 16
+  endif
+  
+  if Unassigned outChan
+    outChan = []
+    FillArray outChan, 9, 16
+  endif
+  
+  call @ClearKnobLabels
+  call @UpdatePadLabels
+  call @PadAndShiftManagerInit
+@End
+
+
+@ClearKnobLabels
+  for i = 0 to 21
+    LabelKnob i, { }
+    SetKnobValue i, 0
+  endfor
+@End
+
+
+@UpdatePadLabels
+  for i = 0 to 15
+    if padSelected = i
+      ColorPad i, LEARNING_COLOR
+    else
+      ColorPad i, NORMAL_COLOR
+    endif
+    LabelPad i, inNote[i], {-ch-}, inChan[i] + 1, { ===⬇️=== },  outNote[i], {-ch-}, outChan[i] + 1
+  endfor
+@End
+
+
+@OnPadDown
+  // Are we setting he pad?
+  if learning = 1
+    call @MIDILearn    
+  else
+    for i = 0 to 15
+      if LastPad = i
+        SendMIDINoteOn outChan[i], outNote[i], LastPadVelocity
+      endif
+    endfor
+  endif
+@End
+
+
+@OnPadUp
+  // Are we setting he pad?
+  if learning = 0
+    for i = 0 to 15
+      if LastPad = i 
+        SendMIDINoteOff outChan[i], outNote[i], 0
+      endif
+    endfor
+  endif
+@End
+
+
+@OnShiftSingleTap
+  call @ChangeLayout
+@End
+
+
+@OnShiftDoubleTap
+  call @MIDILearnMode
+@End
+
+
+@OnShiftHold
+  if learning = 1
+    call @SetOutChanMode
+  endif
+@End
+
+
+@SetOutChanMode
+  if chanSelect = 0
+    chanSelect = 1
+    for i = 0 to 15
+      // Set the visual display for the chan selection.
+      if padSelected = i
+        ColorPad i, LEARNING_COLOR
+      else
+        ColorPad i, CHAN_SELECT_COLOR
+      endif
+      
+      LabelPad i, i + 1
+    endfor
+  else
+    chanSelect = 0
+    call @UpdatePadLabels
+  endif
+@End
+
+
+@MIDILearnMode
+  if learning = 0
+    learning = 1
+    for i = 0 to 15
+      ColorPad i, LEARN_MODE_COLOR
+    endfor
+  else
+    learning = 0
+    padSelected = 16
+    call @ClearKnobLabels
+    call @UpdatePadLabels
+  endif
+@End
+
+
+@MIDILearn
+  if chanSelect = 1
+    for i = 0 to 15
+      if LastPad = i
+        if padSelected < 16
+          outChan[padSelected] = i
+        else
+          FillArray outChan, i, 16
+        endif
+      endif
+    endfor
+  else
+    for i = 0 to 15
+      if LastPad = i
+        ColorPad i, LEARNING_COLOR
+        padSelected = i
+        LabelKnob 0, {note: }, outNote[padSelected]
+        SetKnobValue 0, outNote[padSelected]
+      else
+        ColorPad i, LEARN_MODE_COLOR
+      endif
+    endfor
+  endif
+@End
+
+
+@OnKnobChange
+  if learning = 1 and padSelected < 16
+    outNote[padSelected] = Round (GetKnobValue 0)
+    LabelKnob 0, {note: }, outNote[padSelected]
+    LabelPad padSelected, inNote[padSelected], {-ch-}, inChan[padSelected] + 1, { ===⬇️=== },  outNote[padSelected], {-ch-}, outChan[padSelected] + 1
+  endif
+@End
+
+
+@ChangeLayout
+  if layout = 2
+    layout = 4
+  else
+    layout = 2
+  endif
+  ShowLayout layout
+@End
+
+
+@OnMidiNoteOn
+  if learning = 1 and padSelected < 16
+    inNote[padSelected] = MIDINote
+    inChan[padSelected] = MIDIChannel
+    learning = 0
+    padSelected = 16
+    call @ClearKnobLabels
+    call @UpdatePadLabels
+  else
+    for i = 0 to 15
+      if inNote[i] = MIDINote
+        FlashPad i
+        // send the midi note on message but on the chan+note defined.
+        // Velocity is just passed through.
+        SendMIDINoteOn outChan[i] ,outNote[i], MIDIVelocity
+      endif
+    endfor
+  endif
+@End
+
+
+// vwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvwvw
+
+
+@PadAndShiftManagerInit
+
+  // Apply defaults, if the vars are not yet defined
+
+  if Unassigned pmAnalyseTime
+    pmAnalyseTime = 200 
+  endif
+  if Unassigned pmManageTimer
+    pmManageTimer = YES
+  endif
+  if Unassigned pmTickInterval
+    pmTickInterval = 50
+  endif
+  if Unassigned pmExcludePads
+    pmExcludePads = []
+  endif
+  if Unassigned pmExcludeCnt
+    pmExcludeCnt = 0
+  endif
+  
+  pmPadsActiveCnt = 0  
+  pmPadMaxId = 15
+  for pad = 0 to pmPadMaxId
+    Call @PMInitPadState
+  endfor
+  Call @PMInitShiftState
+  
+  if pmExcludeCnt>0
+    for pad = 0 to pmExcludeCnt-1
+      pmPadExclude[ pmExcludePads[pad] ] = YES
+    endfor
+  endif
+
+  pmAnalyseTicks = pmAnalyseTime / pmTickInterval
+
+  pmTimerRunning = NO
+  if pmManageTimer
+    SetTimerInterval pmTickInterval
+  endif
+  
+  Log {Pad & Shift Manager v3.0 started (},pmExcludeCnt,{ excluded pads, timer=}, pmTickInterval,{msec)}
+@End
+
+@PMInitPadState // Param: pad
+  pmPadActive[pad] = NO
+  pmPadTicks[pad] = 0
+  pmPadTaps[pad] = 0
+  pmPadHold[pad] = NO
+  pmPadExclude[pad] = NO
+@End
+
+@PMReleasePadState // Param: pad
+  Dec pmPadsActiveCnt
+  Call @PMCheckStopTimer
+  Call @PMInitPadState
+ @End
+
+@PMInitShiftState 
+  pmShiftActive = NO
+  pmShiftTicks  = 0
+  pmShiftTaps   = 0
+  pmShiftHold   = NO
+@End
+
+@PMReleaseShiftState
+  Call @PMInitShiftState 
+  Call @PMCheckStopTimer
+@End
+
+@PMCheckStopTimer
+  if pmManageTimer and pmTimerRunning and pmPadsActiveCnt=0 and not pmShiftActive
+    pmTimerRunning = NO
+    StopTimer 
+  endif
+@End
+
+@PMCheckStartTimer
+  if pmManageTimer and not pmTimerRunning
+    pmTimerRunning = YES
+    StartTimer 
+  endif
+@End
+
+@OnPadDown 
+  if pmPadExclude[LastPad]
+    pad = LastPad
+    Call @OnPadSingleTap
+  else
+    Call @PMCheckStartTimer    
+    if not pmPadActive[LastPad]
+      Inc pmPadsActiveCnt
+      pmPadActive[LastPad] = YES
+    endif
+    inc pmPadTaps[LastPad]
+  endif
+@End 
+
+@OnPadUp 
+  if pmPadActive[LastPad] 
+    if pmPadTaps[LastPad] = 1 and pmPadTicks[LastPad] < pmAnalyseTicks
+      pmPadHold[LastPad] = YES
+    endif
+  endif
+@End 
+
+@OnShiftDown
+  pmShiftActive = YES
+  inc pmShiftTaps
+  Call @PMCheckStartTimer
+@End
+
+@OnShiftUp
+  if pmShiftActive and pmShiftTaps = 1 and pmShiftTicks < pmAnalyseTicks
+      pmShiftHold = YES
+  endif
+@End
+
+@OnTimer 
+  if pmManageTimer
+    Call @PadAndShiftManagerUpdate
+  endif
+@End 
+
+@PadAndShiftManagerUpdate
+  if not Unassigned pmPadMaxId  
+    for pad = 0 to pmPadMaxId
+      if pmPadActive[pad]
+        Inc pmPadTicks[pad]
+
+        if pmPadTicks[pad] > pmAnalyseTicks
+          if pmPadTaps[pad] = 1
+            if pmPadHold[pad]
+              Call @OnPadSingleTap
+            else
+              Call @OnPadHold
+            endif
+          else
+              Call @OnPadDoubleTap
+          endif
+
+          Call @PMReleasePadState
+        endif
+      endif
+    endfor
+  
+    if pmShiftActive 
+      Inc pmShiftTicks
+      if pmShiftTicks > pmAnalyseTicks
+        if pmShiftTaps = 1
+          if pmShiftHold
+            Call @OnShiftSingleTap
+          else
+            Call @OnShiftHold
+          endif
+        else
+            Call @OnShiftDoubleTap
+        endif
+    
+        Call @PMReleaseShiftState 
+      endif
+    endif
+  endif
+@End
+
+
+@Description
+Drum Machine Remapper!!!   😜
+  
+  SHIFT - single tap: "Show this help screen"
+  SHIFT - double tap: "MIDI Learn mode"
+  SHIFT - long press: "Set out channel for selected pad. 
+          NOTE:(Only while in MIDI Lean Mode)"
+  
+How to:
+  
+  MIDI Learn
+  
+  1. double-tap the SHIFT button.
+  2. select a pad. the pad will light up in red.
+  3. press on a note on your MIDI keyboard.
+  
+  Setting the Out Note
+  
+  1. double-tap the SHIFT button.
+  2. select a pad. the pad will light up in red.
+  3. Use knob 0 to select a note number.
+  4. double-tap the SHIFT button once more to exit MIDI Learn.
+  
+  Setting the Out Channel
+  
+  1. double-tap the SHIFT button.
+  2. select the pad you want to change. 
+     NOTE:(if no pad is selected ALL pads will be altered)
+  3. long-press the SHIFT button, and let go once the pads change green.
+  4. tap any of the pads to set the out MIDI Channel.
+  
+Notes on Velocity:
+  
+  Velocity is simply passed through, if the pad is being triggered from a MIDI note then
+  the MIDINoteVelocity value is used. If, however, we trigger the note via pad then the
+  LastPadVelocity value is used instead. This provides us with more flexibility on how we
+  use this script. For example:
+
+  You can have the pads react to MIDI input, simply follow the 
+  MIDI Learn functionality. This method uses the incoming midi notes.
+  
+  You can also map your keyboard to the pads. This menas that if you have a script already
+  loaded and mapped to pads you won't have to re-learn anything. This method uses the
+  notes mapped to the pads via the DAW mapping settings.
+  
+Special Thanks:
+  
+  Special thanks to "-ki" for the amazing handling functions enabling the pad/shift gestures.
+  find the code here: https://patchstorage.com/pad-manager-include/
+  
+@End
