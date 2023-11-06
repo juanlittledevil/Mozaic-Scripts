@@ -1,0 +1,38 @@
+@OnLoad
+  // == APC40 Out ==
+  // Author: Juan Segovia
+  // Created: 12/2019
+  // Version: 0.13
+  
+  SetShortName {APC-OUT}
+  layout = 4
+  ShowLayout layout
+@End
+
+
+
+@OnMidiNote
+  // we need to filter out the matrix notes so we can update it while sending
+  // different data out as well.
+  if (MIDINote < 51 or MIDINote > 57) and MIDIChannel > 0
+    SendMIDIThru
+  endif
+@End
+
+
+
+@OnMidiCC
+  if MIDIChannel > 0
+    SendMIDIThru
+  endif
+@End
+
+
+
+@Description
+This receives input from the APC40 Moziac script.
+Use the output to control your DAW and other devices.
+
+This will filter out events meant for the APC40 Hardware. This will save you having to configure special filters in the DAW.
+@End
+

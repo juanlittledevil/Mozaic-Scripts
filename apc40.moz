@@ -1,0 +1,1284 @@
+@OnLoad
+  // =====  APC40  =====
+  // Author: Juan Segovia
+  // Created: 12/2019
+  // Version 0.32
+  //
+  // TODO: 
+  // - ledType Selector: use one of the modes or shift buttons to somewhow change the LED ring type.
+  // created the LED States, and variable, need to create an array to hold the CC values for the rings so
+  // I can loop through them, the same way as I do for the encoders. The current way won't work.
+  
+  SetShortName {APC40} 
+  layout = 3
+  ShowLayout layout
+  shiftState = 0
+  
+  // globals
+  // used to store cc values
+  if Unassigned ccValues
+    ccValues = []
+    FillArray ccValues, 0
+  endif
+  if Unassigned ccMaster
+    ccMaster = []
+    FillArray ccMaster, 0
+  endif
+  
+  // used as a latch mechanism.
+  if Unassigned updating
+    updating = []
+    FillArray updating, 0
+  endif
+  if Unassigned updatingMaster
+    updatingMaster = []
+    FillArray updatingMaster, 0
+  endif
+  
+  // Used to hold button values/states
+  if Unassigned buttonValues
+    buttonValues = []
+    FillArray buttonValues, 0
+  endif
+  
+  if Unassigned cueValues
+    cueValues = []
+    FillArray cueValues, 64, 16
+  endif
+  
+  // Banks - of encoders..
+  bankButton = [58,59,60,61]
+  bankButton2 = [87,88,89,90]
+  
+  // Encoders there are two banks
+  // LED Types
+  // 0=off, 1=Single, 2=Volume Style, 3=Pan Style, 4-127=Single
+  ringOff = 0
+  ringSingle = 1
+  ringVolume = 2
+  ringPan = 3
+  bankEncoder = [16,17,18,19,20,21,22,23]
+  bankEncoder2 = [48,49,50,51,52,53,54,55]
+  bankEncoderRing = [24,25,26,27,28,29,30,31]
+  bankEconderRing2 = [56,57,58,59,60,61,62,63]
+  ecndoerOffset = 10
+  if Unassigned encoderLedType
+   encoderLedType = []
+   FillArray encoderLedType, ringVolume
+  endif
+  
+  // Mode Buttons
+  modeButton = [62,63,64,65]
+  
+  // Launch buttons
+  sceneLaunchButton = [82,83,84,85,86]
+  clipLaunchButton = [53,54,55,56,57]
+  
+  // Matrix, and helpers.
+  // LED colors
+  off = 0
+  green = 1
+  blinkyGreen = 2
+  red = 3
+  blinkyRed = 4
+  yellow = 5
+  blinkyYellow = 6
+  clearScreenColor = off
+  
+  // Mode 4 (Default) Notes...
+  // these notes will include stop and track selection.
+  // in this mode each track sends on a different channel.
+  mode4notes = [40,41,42,43,44,45,46]
+  mode4scene = [66,67,68,69,70]
+  stopClipNote = 52
+  stopClipNoteMaster = 81
+  mode4stop = mode4notes[5]
+  mode4track = mode4notes[6]
+  if Unassigned mode4tag
+    mode4tag = []
+    FillArray mode4tag, 0
+  endif
+  
+  // when mode is 1 we send all notes from the current channel
+  // there are 40 (8 * 5) buttons so 0 to 39
+  mode0offset = 100
+  mode0scene = [71,72,73,74,75]
+  mode0note = []
+  // start with note 0
+  n = 0
+  for col = 0 to 4
+    for row = 0 to 7
+      index = row + (col * 8)
+      mode0note[index] = n
+      n = n + 1
+    endfor
+  endfor
+  if Unassigned mode0tag
+    mode0tag = []
+    FillArray mode0tag, 0
+  endif
+  
+  // 98 is the shift button on the APC40.
+  midiShiftNote = 98 
+  tapTempoButton = 99
+  
+  // used to determine the array position
+  padOffColor = 5
+  padOnColor = 4
+  curChan = 0
+  curBank = 0
+  curBank2 = 0
+  chanOffset = 127
+  bankOffset = 8
+  latchClipStop = 0
+  latchClipLaunch = 0
+  matrixMode = 4
+  
+  // mixer
+  LabelKnobs {mixer} 
+  LabelKnob 8, { } 
+  LabelKnob 9, {Master} 
+  
+  // Used to store mixer volumes
+  if Unassigned mixerVolumes
+    mixerVolumes = [0,0,0,0,0,0,0,0,0,0]
+  endif
+  for i = 0 to 7
+    LabelKnob i, {ch. }, (i + 1)
+    SetKnobValue i, mixerVolumes[i] 
+  endfor
+  SetKnobValue 8, mixerVolumes[9]
+  
+  // initialize the apc
+  call @Initialize
+  call @UpdateEncoders
+@end 
+
+
+
+// ----------------------  ----------------------  SHIFT EVENTS
+
+
+
+@OnShiftDown
+  shiftState = 1
+@End
+
+
+
+@OnShiftUp
+  if shiftState = 1
+    call @ChangeLayout
+    call @UpdateEncoders
+  endif
+  shiftState = 0
+@End
+  
+
+
+// ----------------------  ----------------------  NOTE EVENTS
+
+
+
+@OnMidiNote  
+  call @shiftButton
+  call @TapTempoButtonPressed
+  call @TransportButtons
+  call @Mode2_BlinkyGreen 
+@End 
+
+
+
+@OnMidiNoteOn
+  call @SelectEncoders
+  call @ModeSelection
+  call @ShiftButtonOn
+  call @ArmSoloMute
+  call @StopClipButtons_On
+  call @MIDIbankSelection
+  call @MIDILatchFunction
+  call @Mode0_On
+  call @Mode4_Default_On
+@End
+
+
+
+@OnMidiNoteOff
+  call @ShiftButtonOff
+  call @StopClipButtons_Off
+  call @Mode0_Off
+  call @Mode4_Default_Off
+@End
+
+
+
+// ----------------------  ----------------------  MIDI CC EVENTS
+
+
+
+@OnMidiCC
+  call @TrackFaders
+  call @EncoderBanks
+  call @CrossFader
+  call @CueEncoder
+@End 
+
+
+
+// ---------------------- KNOB EVENTS
+
+
+
+@OnKnobChange
+  // 8 is unused, don't allow changes.
+  if LastKnob = 8
+    SetKnobValue 8, 0 
+  endif
+  for i = 0 to 9
+    if LastKnob = i
+      ccVal = GetKnobValue i 
+      mixerVolumes[i] = ccVal 
+      SendMIDICC i, 7, ccVal
+    endif
+  endfor 
+@End 
+
+
+
+// ---------------------- PAD EVENTS
+
+
+@OnPadDown
+  call @SelectBank
+  call @UpdateEncoders
+  call @LatchFunction
+  call @MatrixSelection
+@End 
+  
+  
+  
+// ----------------------  ----------------------  FUNCTIONS
+
+
+
+@ArmSoloMute
+  if MIDINote > 47 and MIDINote < 51
+    // mute, arm, solo
+    call @SendLatchedNote 
+  endif
+@End
+
+
+
+@ArrowButtons
+  if MIDINote > 93 and MIDINote < 98
+    // up down right left
+    SendMIDIThruOnCh 8
+  endif
+@End
+
+
+
+@ChangeLayout
+  if layout = 2
+    layout = 3
+  else
+    layout = layout - 1
+  endif 
+  ShowLayout layout 
+@End 
+
+
+
+@ClearSceneButtons
+  // The scene Launch  Buttons only support: 0=off, 1=on, 2=blink, 3-127=on
+  for i = 0 to 4
+    if matrixMode = 4
+      // screen buttons are always on channel 1.
+      index = mode4scene[i]
+      
+      // update the APC
+      if mode4tag[index] = 0 
+        SendMIDINoteOn 0, sceneLaunchButton[i], off
+      else
+        SendMIDINoteOn 0, sceneLaunchButton[i], green
+      endif
+    
+    elseif matrixMode = 0
+      // screen buttons are always on channel 1.
+      note = mode0scene[i]
+      index = note + (mode0offset * curChan)
+      
+      // update the APC
+      if mode0tag[index] = 0 
+        SendMIDINoteOn 0, sceneLaunchButton[i], off
+      else
+        SendMIDINoteOn 0, sceneLaunchButton[i], green
+      endif
+
+    else
+      SendMIDINoteOn 0, sceneLaunchButton[i], off
+    endif
+  endfor
+@End
+
+
+
+@ClearMatrix
+  for i = 0 to 4
+    for chan = 0 to 7
+      if matrixMode = 4
+        note = mode4notes[i]
+        index = note + (chanOffset * chan)
+        
+        // update the APC
+        if mode4tag[index] = 0 
+          SendMIDINoteOn chan, clipLaunchButton[i], clearScreenColor
+        else
+          SendMIDINoteOn chan, clipLaunchButton[i], taggedColor
+        endif
+      elseif matrixMode = 0
+        j = chan + (i * 8)
+        note = mode0note[j]
+        index = note + (mode0offset * curChan)
+        
+        // update the APC
+        if mode0tag[index] = 0
+          SendMIDINoteOn chan, clipLaunchButton[i], clearScreenColor
+        else
+          SendMIDINoteOn chan, clipLaunchButton[i], taggedColor
+        endif
+      else
+        SendMIDINoteOn chan, clipLaunchButton[i], clearScreenColor
+      endif
+    endfor
+  endfor
+@End
+
+
+
+@CrossFader
+  if MIDIByte2 = 15
+    // send it out on the master channel.
+    SendMIDICC 8, 15, MIDIByte3
+  endif
+@End
+
+
+
+@CueEncoder
+  if MIDIByte2 = 47
+    value = cueValues[curChan]
+    // send it out on the master channel.
+    
+    if MIDIByte3 < 64
+      value = value + 1
+      if value = 128
+        value = 127
+      endif
+    else
+      value = value - 1
+      if value < 0
+        value = 0
+      endif
+    endif
+    
+    cueValues[curChan] = value
+        
+    if curChan = 0
+      SendMIDICC 9, 47, value
+    else
+      SendMIDICC curChan, 47, value
+    endif
+  endif
+@End
+  
+
+
+@EncoderBanks
+  if MIDIByte2 > (bankEncoder[0] - 1) and MIDIByte2 < (bankEncoder[7] + 1)
+    cc = MIDIByte2 + (bankOffset * curBank)
+    ccApc = MIDIByte2
+    curVal = MIDIByte3
+    call @SendControllerData
+  elseif MIDIByte2 > (bankEncoder2[0] - 1) and MIDIByte2 < (bankEncoder2[7] + 1)
+    cc = MIDIByte2 + (bankOffset * curBank2)
+    ccApc = MIDIByte2
+    curVal = MIDIByte3
+    call @SendControllerData
+  endif 
+@End
+
+
+
+@Initialize
+  // initialize pads
+  for i = 0 to 15
+    if i = 0 or i = 4
+      LabelPad i, 1, {-on} 
+      ColorPad i, padOnColor
+    elseif i < 8
+      LabelPad i, { } 
+      ColorPad i, padOffColor
+    else
+      LabelPad i, { }
+      ColorPad i, 3
+    endif 
+  endfor 
+  LabelPad 14,{stopClip Latch -off-}
+  LabelPad 15,{matrxClip Latch -off-}
+  
+  // now the apc
+  for i = 0 to 3
+    if i = curBank or i = curBank2
+      SendMIDINoteOn 0, bankButton[i], 1
+      SendMIDINoteOn 0, bankButton2[i], 1
+    else
+      SendMIDINoteOff 0, bankButton[i], 0
+      SendMIDINoteOff 0, bankButton2[i], 0
+    endif
+  endfor
+  
+  // initialize the APC
+  mode = [0x40, 0x41, 0x42]
+  data = [0x47, 0x00, 0x73, 0x60, 0x00, 0x04, mode[1], 0x08, 0x04, 0x01]
+  SendSysex data, 10
+  
+  // set the encoder modes
+  //for i = 24 to 31
+    //SendMIDICC 0, i, encoderLedType[i]
+  //endfor
+  //for i = 56 to 63
+    //SendMIDICC 0, i, encoderLedType[i]
+  //endfor
+  
+  // set the current track channel
+  SendMIDINoteOn curChan, 51, 1 
+  
+  // set up the stopClipButtons.
+  for chan = 0 to 7
+    SendMIDINoteOn chan, stopClipNote, green
+  endfor
+  // Doesn't seem to work for the stop all clips note.
+  SendMIDINoteOn 0, 81, 1
+  
+  // Set up the pad matrix (clip launch)
+  clearScreenColor = yellow
+  taggedColor = red
+  call @ClearMatrix
+  call @ClearSceneButtons
+@End
+
+
+
+@LatchFunction
+  if LastPad = 14
+    // stop clip latch function
+    if latchClipStop = 0
+      latchClipStop = 1
+      LabelPad 14,{stopClip Latch -on-}
+    else
+      latchClipStop = 0
+      LabelPad 14,{stopClip Latch -off-}
+    endif
+  elseif LastPad = 15
+    // launch clip latch function
+    if latchClipLaunch = 0
+      latchClipLaunch = 1
+      LabelPad 15,{matrxClip Latch -on-}
+    else
+      latchClipLaunch = 0
+      LabelPad 15,{matrxClip Latch -off-}
+    endif
+  endif
+@End
+
+
+// mode selection from pads....
+@MatrixSelection
+  if LastPad = 8
+    if matrixMode = 4
+      matrixMode = 0
+      LabelPad 8, {matrix mode: }, matrixMode
+    else
+      matrixMode = matrixMode + 1
+      LabelPad 8, {matrix mode: }, matrixMode
+    endif
+  endif
+@End
+
+
+
+@MIDIbankSelection
+  if MIDINote > (bankButton[0] - 1) and MIDINote < (bankButton[3] + 1)
+    // bankButtons
+    FillArray updating, 0
+    for i = 0 to 3
+      if bankButton[i] = MIDINote
+        curBank = i
+        FlashPad i
+        LabelPad i, (i + 1), {-on} 
+        ColorPad i, padOnColor
+        SendMIDINoteOn 0, bankButton[i], 1
+      else
+        LabelPad i, { } 
+        ColorPad i, padOffColor
+        SendMIDINoteOff 0, bankButton[i], 0
+      endif
+    endfor
+    call @UpdateEncoders
+  elseif MIDINote > (bankButton2[0] - 1) and MIDINote < (bankButton2[3] + 1)
+    // bankButtons
+    FillArray updating, 0
+    for i = 0 to 3
+      pad = i + 4
+      if bankButton2[i] = MIDINote
+        curBank2 = i
+        FlashPad pad
+        LabelPad pad, (i + 1), {-on} 
+        ColorPad pad, padOnColor
+        SendMIDINoteOn 0, bankButton2[i], 1
+      else
+        LabelPad pad, { } 
+        ColorPad pad, padOffColor
+        SendMIDINoteOff 0, bankButton2[i], 0
+      endif
+    endfor
+    call @UpdateEncoders
+  endif
+@End
+
+
+
+@MIDILatchFunction
+  // these are the nudge buttons.
+  if shiftState = 1
+    if MIDINote = 101
+      // reset it
+      shiftState = 0
+      
+      // stop clip latch function
+      if latchClipStop = 0
+        latchClipStop = 1
+        LabelPad 14,{stopClip Latch -on-}
+      else
+        latchClipStop = 0
+        LabelPad 14,{stopClip Latch -off-}
+      endif
+    elseif MIDINote = 100
+      // reset it
+      shiftState = 0
+      
+      // launch clip latch function
+      if latchClipLaunch = 0
+        latchClipLaunch = 1
+        LabelPad 15,{matrxClip Latch -on-}
+      else
+        latchClipLaunch = 0
+        LabelPad 15,{matrxClip Latch -off-}
+      endif
+    endif
+  else
+    if MIDINote = 100 or MIDINote = 101
+      SendMIDIThruOnCh 8
+    endif
+  endif
+@End
+
+ 
+// the mode selection buttons.
+@ModeSelection
+  if MIDINote > (modeButton[0] - 1) and MIDINote < (modeButton[3] + 1)
+    // 62	63	64	65 - these are the led buttons under the top set of encoders.
+    // when the buttons are pressed the first thing we do is clear the screen.
+    clearScreenColor = off
+    call @ClearMatrix
+    call @ClearSceneButtons
+    
+    // Then let's figure out which mode is going to be selected.
+    for i = 0 to 3
+      if modeButton[i] = MIDINote
+        // turn them all the buttons off first.
+        for j = 0 to 3
+          SendMIDINoteOff 0, modeButton[j], 0
+        endfor
+        
+        button = modeButton[i]
+        
+        // now turn on the selected button.
+        if matrixMode = 4
+          matrixMode = i
+          if matrixMode = 0
+            clearScreenColor = red
+            taggedColor = green
+            call @ClearMatrix
+            call @ClearSceneButtons
+          endif
+           
+          SendMIDINoteOn 0, button, 1
+        elseif matrixMode = i
+          matrixMode = 4
+          clearScreenColor = yellow
+          taggedColor = red
+          call @ClearMatrix
+          call @ClearSceneButtons
+           
+          SendMIDINoteOff 0, button, 0
+        else
+          matrixMode = i
+          if matrixMode = 0
+            taggedColor = green
+            clearScreenColor = red
+            call @ClearMatrix
+            call @ClearSceneButtons
+          endif
+           
+          SendMIDINoteOn 0, button, 1
+        endif
+      endif
+    endfor
+    
+  endif
+@End
+
+
+
+@Mode0_On
+  // mode 0 - in this mode, the matrix responds to a fixed set of notes from 0 - 39.
+  // the notes are sent out based on the currently selected MIDI channel.
+  if matrixMode = 0
+  
+    chan = MIDIChannel
+    
+    if MIDINote > (clipLaunchButton[0] - 1) and MIDINote < (clipLaunchButton[4] + 1)
+      for i = 0 to 4
+      
+        if MIDINote = clipLaunchButton[i]
+          j = chan + (i * 8)
+          note = mode0note[j]
+          index = note + (mode0offset * curChan)
+          
+          if shiftState = 0
+            if curChan = 0
+              SendMIDINoteOn 9, note, 64
+            else
+              SendMIDINoteOn curChan, note, 64  
+            endif 
+        
+            // update the APC
+            SendMIDINoteOn chan, clipLaunchButton[i], blinkyRed  
+          elseif shiftState = 1
+            if mode0tag[index] = 0
+              mode0tag[index] = 1
+            else
+              mode0tag[index] = 0            
+            endif  
+          endif    
+        endif
+      endfor
+    elseif MIDINote > (sceneLaunchButton[0] - 1) and MIDINote < (sceneLaunchButton[4] + 1)
+      for i = 0 to 4
+        if MIDINote = sceneLaunchButton[i]
+          note = mode0scene[i]
+          index = note + (mode0offset * curChan)
+          
+          if shiftState = 0
+            if curChan = 0
+              SendMIDINoteOn 9, note, 64
+            else
+              SendMIDINoteOn curChan, note, 64  
+            endif 
+              
+            // update the APC
+            SendMIDINoteOn chan, sceneLaunchButton[i], blinkyGreen    
+          elseif shiftState = 1
+            if mode0tag[index] = 0
+              mode0tag[index] = 1
+            else
+              mode0tag[index] = 0            
+            endif 
+          endif       
+        endif
+      endfor
+    endif
+  endif
+@End
+
+
+
+@Mode0_Off
+  if matrixMode = 0
+    clearScreenColor = red
+    taggedColor = green
+    
+    chan = MIDIChannel
+    
+    if MIDINote > (clipLaunchButton[0] - 1) and MIDINote < (clipLaunchButton[4] + 1)
+      for i = 0 to 4
+        if MIDINote = clipLaunchButton[i]
+          j = chan + (i * 8)
+          note = mode0note[j]
+          index = note + (mode0offset * curChan)
+          
+          if curChan = 0
+            SendMIDINoteOff 9, note,  0 
+          else
+            SendMIDINoteOff curChan, note,  0 
+          endif
+          
+          // update the APC
+          if mode0tag[index] = 0 
+            SendMIDINoteOn chan, clipLaunchButton[i], clearScreenColor
+          else
+            SendMIDINoteOn chan, clipLaunchButton[i], taggedColor
+          endif 
+          
+        endif
+      endfor
+    elseif MIDINote > (sceneLaunchButton[0] - 1) and MIDINote < (sceneLaunchButton[4] + 1)
+      for i = 0 to 4
+        if MIDINote = sceneLaunchButton[i]
+          note = mode0scene[i]
+          index = note + (mode0offset * curChan)
+            
+          if curChan = 0
+            SendMIDINoteOff 9, note, 0
+          else
+            SendMIDINoteOff curChan, note, 0  
+          endif  
+          
+          // update the APC
+          if mode0tag[index] = 0 
+            SendMIDINoteOn chan, sceneLaunchButton[i], off
+          else
+            SendMIDINoteOn chan, sceneLaunchButton[i], green
+          endif     
+        endif
+      endfor
+    endif
+  endif
+@End
+
+
+
+@Mode2_BlinkyGreen
+if matrixMode = 2
+  for i = 0 to 4
+    for chan = 0 to 7
+      SendMIDINoteOn chan, clipLaunchButton[i], chan
+    endfor
+    SendMIDINoteOn chan, sceneLaunchButton[i], blinkyGreen
+  endfor
+endif
+@End
+
+
+
+@Mode4_Default_On
+  if matrixMode = 4 
+    
+    chan = MIDIChannel
+    
+    if MIDINote > (clipLaunchButton[0] - 1) and MIDINote < (clipLaunchButton[4] + 1)
+      for i = 0 to 4
+        note = mode4notes[i]
+        index = note + (chanOffset * chan)
+        
+        
+        if MIDINote = clipLaunchButton[i]
+          if shiftState = 0
+            // send the note on message. 
+            if chan = 0
+              // Channel 1 is reserved for the APC
+              SendMIDINoteOn 9, note, 64
+            else
+              SendMIDINoteOn chan, note, 64
+            endif
+            
+            // update the APC
+            SendMIDINoteOn chan, clipLaunchButton[i], green
+          elseif shiftState = 1
+            if mode4tag[index] = 0
+              mode4tag[index] = 1
+            else
+              mode4tag[index] = 0
+            endif
+          endif
+        endif
+      endfor
+    elseif MIDINote > (sceneLaunchButton[0] - 1) and MIDINote < (sceneLaunchButton[4] + 1)
+      for i = 0 to 4
+        if MIDINote = sceneLaunchButton[i]
+          note = mode4scene[i]
+          index = note + (chanOffset * chan)
+                  
+          if shiftState = 0
+            // Send the Note out.        
+            SendMIDINoteOn 8, note, 64   
+        
+            // update the APC
+            SendMIDINoteOn chan, sceneLaunchButton[i], blinkyGreen  
+          elseif shiftState = 1
+            if mode4tag[index] = 0
+              mode4tag[index] = 1
+            else
+              mode4tag[index] = 0            
+            endif
+          endif
+        endif
+      endfor
+    endif         // end MIDI NOTE
+  endif           // end mode 4
+@End
+
+
+
+@Mode4_Default_Off
+  if matrixMode = 4
+    clearScreenColor = yellow
+    taggedColor = red
+    chan = MIDIChannel
+    
+    if MIDINote > (clipLaunchButton[0] - 1) and MIDINote < (clipLaunchButton[4] + 1)
+      for i = 0 to 4
+        note = mode4notes[i]
+        index = note + (chanOffset * chan)
+        
+        if MIDINote = clipLaunchButton[i]
+          // send the note on message. 
+          if chan = 0
+            // Channel 1 is reserved for the APC
+            SendMIDINoteOff 9, note, 0
+          else
+            SendMIDINoteOff chan, note, 0
+          endif
+          
+          // update the APC
+          if mode4tag[index] = 0 
+            SendMIDINoteOn chan, clipLaunchButton[i], clearScreenColor
+          else
+            SendMIDINoteOn chan, clipLaunchButton[i], taggedColor
+          endif 
+        endif
+      endfor
+    elseif MIDINote > (sceneLaunchButton[0] - 1) and MIDINote < (sceneLaunchButton[4] + 1)
+      // The scene launge buttons only have green and bink.
+      for i = 0 to 4
+        note = mode4scene[i]          
+        index = note + (chanOffset * chan)
+                
+        if MIDINote = sceneLaunchButton[i]
+          SendMIDINoteOff 8, note, 0   
+      
+          // update the APC
+          if mode4tag[index] = 0 
+            SendMIDINoteOn chan, sceneLaunchButton[i], off
+          else
+            SendMIDINoteOn chan, sceneLaunchButton[i], green
+          endif 
+        endif
+      endfor
+    endif
+    
+  endif
+@End
+
+
+
+@SendLatchedNote
+  note = MIDINote
+  index = note + (chanOffset * MIDIChannel)
+  if buttonValues[index] = 0
+    SendMIDINoteOn MIDIChannel, note, 1
+    if MIDIChannel = 0
+      SendMIDINoteOn 9, note, 64
+    endif
+    buttonValues[index] = 1 
+  else
+    SendMIDINoteOff MIDIChannel, note, 0
+    if MIDIChannel = 0
+      SendMIDINoteOff 9, note, 0
+    endif
+    buttonValues[index] = 0 
+  endif
+@End
+
+
+
+@ShiftButton
+  if MIDINote = midiShiftNote
+    SendMIDIThruOnCh 8
+  endif
+@End
+
+
+
+@ShiftButtonOn
+  if MIDINote = midiShiftNote
+    // if shift is pressed on the apc40. use shift here.
+    call @OnShiftDown
+  endif
+@End
+
+
+
+@ShiftButtonOff
+  if MIDINote = midiShiftNote
+    // if shift is released, track it
+    call @OnShiftUp
+  endif
+@End
+
+
+
+@StopClipButtons_On
+  if MIDINote = stopClipNote
+    // If we are latched.
+    if latchClipStop = 1
+      index = stopClipNote + (chanOffset * MIDIChannel)
+      if buttonValues[index] = 0
+        // APC40..
+        SendMIDINoteOn MIDIChannel, stopClipNote, blinkyGreen
+        // Note out.
+        if MIDIChannel = 0
+          // Channel 1 is for the APC
+          SendMIDINoteOn 9, mode4stop, 64
+        else
+          SendMIDINoteOn MIDIChannel, mode4stop, 64
+        endif
+        buttonValues[index] = 1 
+        
+      elseif buttonValues[index] = 1
+        // APC40..
+        SendMIDINoteOn MIDIChannel, stopClipNote, green
+        // Note out.
+        if MIDIChannel = 0
+          // send whats meant for 1 on 10 and reserve 1 for the APC.
+          SendMIDINoteOff 9, mode4stop, 0
+        else
+          SendMIDINoteOff MIDIChannel, mode4stop, 0
+        endif
+        buttonValues[index] = 0 
+        
+      endif
+    
+    // IF we are not latched.
+    else
+      // APC40..
+      SendMIDINoteOn MIDIChannel, stopClipNote, blinkyGreen
+      // Note out.
+      if MIDIChannel = 0
+        // Channel 1 is for the APC
+        SendMIDINoteOn 9, mode4stop, 64
+      else
+        SendMIDINoteOn MIDIChannel, mode4stop, 64
+      endif
+    endif 
+    
+  elseif MIDINote = stopClipNoteMaster
+    if latchClipStop = 1
+      index = stopClipNote + (chanOffset * MIDIChannel)
+      if buttonValues[index] = 0
+        // APC40..
+        SendMIDINoteOn MIDIChannel, stopClipNoteMaster, blinkyGreen
+        // Note out.
+        SendMIDINoteOn 8, mode4stop, 64 
+        buttonValues[index] = 1 
+         
+      elseif buttonValues[index] = 1
+        // APC40..
+        SendMIDINoteOn MIDIChannel, stopClipNoteMaster, green
+        // Note out.
+        SendMIDINoteOff 8, mode4stop, 0
+        buttonValues[index] = 0 
+        
+      endif
+    // IF we are not latched.
+    else
+      // Update the APC
+      SendMIDINoteOn MIDIChannel, stopClipNoteMaster, blinkyGreen 
+      // not actually needed here but let's be safe.
+      if MIDIChannel = 0
+        // The master Track is channel 9 (8)
+        SendMIDINoteOn 8, mode4stop, 64
+      endif
+    endif
+  endif
+@End
+
+
+
+@StopClipButtons_Off
+  if MIDINote = stopClipNote
+    if latchClipStop = 0
+      // APC40..
+      SendMIDINoteOn MIDIChannel, stopClipNote, green
+      // Note out.
+      if MIDIChannel = 0
+        // send whats meant for 1 on 10 and reserve 1 for the APC.
+        SendMIDINoteOff 9, mode4stop, 0
+      endif
+      SendMIDINoteOn MIDIChannel, mode4stop, 0
+    endif
+  elseif MIDINote = stopClipNoteMaster
+    if latchClipStop = 0
+      // Update the APC
+      SendMIDINoteOn MIDIChannel, stopClipNoteMaster, green  
+      // not actually needed here but let's be safe.
+      if MIDIChannel = 0
+        // The master Track is channel 9 (8)
+        SendMIDINoteOff 8, mode4stop, 0
+      endif
+    endif
+  endif  
+@End
+
+
+
+@SelectEncoders
+  if MIDINote = 51
+    // encoder selection
+    curChan = MIDIChannel
+    
+    if matrixMode = 0
+      taggedColor = green
+      clearScreenColor = red
+      call @ClearMatrix
+      call @ClearSceneButtons
+    endif
+    
+    for chan = 0 to 8
+      if chan = curChan
+        if chan = 0
+          SendMIDINoteOn 9, mode4track, 64
+        else
+          //Send the Note out.
+          SendMIDINoteOn curChan, mode4track, 64
+        endif
+        
+        // Update the APC
+        SendMIDINoteOn curChan, 51, 1
+        
+        // if we pressed 51, that means we are not on the master track.
+        // so turn that off.
+        SendMIDINoteOff 0, 80, 0
+      else
+        //If this is not the current channel. Send the note off.
+        if chan = 0
+          SendMIDINoteOff 9, mode4track, 0
+        else
+          SendMIDINoteOff chan, mode4track, 0
+        endif
+        
+        // Update the APC
+        SendMIDINoteOff chan, 51, 0
+      endif
+    endfor
+    call @UpdateEncoders
+  elseif MIDINote = 80
+    // encoder selection for master track
+    // we will use channel 16 for the master
+    curChan = 8
+    
+    if matrixMode = 0
+      clearScreenColor = red
+      taggedColor = green
+      call @ClearMatrix
+      call @ClearSceneButtons
+    endif
+    
+    for chan = 0 to 9
+      if chan = curChan
+        // Update the APC
+        SendMIDINoteOn 0, 80, 1
+        SendMIDINoteOn curChan, mode4track, 64
+      else
+        // Update the APC
+        SendMIDINoteOff chan, 51, 0
+        // And the other notes
+        SendMIDINoteOff chan, mode4track, 0
+      endif
+    endfor
+    call @UpdateEncoders
+  endif
+@End
+
+
+
+@SelectBank
+  FillArray updating, 0
+  for i = 0 to 3
+    if i = LastPad 
+      curBank = i
+      FlashPad i
+      LabelPad i, (i + 1), {-on} 
+      ColorPad i, padOnColor
+      SendMIDINoteOn 0, bankButton[i], 1
+    elseif LastPad < 4
+      LabelPad i, { } 
+      ColorPad i, padOffColor
+      SendMIDINoteOff 0, bankButton[i], 0
+    endif 
+  endfor 
+  for i = 0 to 3
+    pad = i + 4
+    if pad = LastPad 
+      curBank2 = i
+      FlashPad pad
+      LabelPad pad, (i + 1), {-on} 
+      ColorPad pad, padOnColor
+      SendMIDINoteOn 0, bankButton2[i], 1
+    elseif LastPad < 8 and LastPad > 3
+      LabelPad pad, { } 
+      ColorPad pad, padOffColor
+      SendMIDINoteOff 0, bankButton2[i], 0
+    endif 
+  endfor 
+@End
+
+
+
+@SendControllerData
+  if curChan = 8
+    if ccMaster[cc] = (curVal - 1) or (curVal + 1)
+      updatingMaster[cc] = 1
+    endif
+    if updatingMaster[cc] = 1
+      if shiftState = 1
+        // values for the type of encoder from 0 to 3
+        encoderLedType[cc] = round ((curVal * 3) / 127)
+        // Updating the encoders will give us some feedback. ;)
+        SendMIDICC 0, (ccApc + 8), encoderLedType[cc]
+      else
+        ccMaster[cc] = curVal
+      endif
+    endif
+    SendMIDICC curChan, cc, curVal
+    SendMIDICC 0, ccApc, curVal
+  else
+    updatingMaster[cc] = 0
+    index = cc + (chanOffset * curChan)
+    if ccValues[index] = (curVal - 1) or (curVal + 1)
+      updating[index] = 1
+    endif 
+    
+    if updating[index] = 1
+      if shiftState = 1
+        // values for the type of encoder from 0 to 3
+        encoderLedType[index] = round ((curVal * 3) / 127)
+        // Updating the encoders will give us some feedback. ;)
+        SendMIDICC 0, (ccApc + 8), encoderLedType[index]
+      else
+        ccValues[index] = curVal 
+      endif
+      
+      // mirror 0 on 10 so we use 0 for the apc.
+      if curChan = 0
+        SendMIDICC 9, cc, curVal
+      else
+        SendMIDICC curChan, cc, curVal
+      endif
+      // update the enocder leds...
+      SendMIDICC 0, ccApc, curVal
+    endif 
+  endif
+@End
+
+
+
+@TapTempoButtonPressed
+  if MIDINote = tapTempoButton
+    if shiftState = 0
+      SendMIDIThruOnCh 8
+    else
+      call @Initialize
+      call @UpdateEncoders
+    endif
+  endif
+@End
+
+
+
+@TrackFaders
+  if MIDIByte2 = 7
+    // THESE ARE THE TRACK VOLUME FADERS
+    if MIDIChannel = 0
+      // channel 1 is reserved for the APC,
+      SendMIDICC 9, 7, MIDIByte3
+    else
+      SendMIDICC MIDIChannel , 7, MIDIByte3 
+    endif
+    // Update the knobs
+    SetKnobValue MIDIChannel , MIDIByte3  
+  elseif MIDIByte2 = 14
+    // The master track on the APC sends out on channel 1 (0) cc 14
+    // But we will send on channel 9 (8) cc 7.
+    SendMIDICC 8, 7, MIDIByte3
+    SetKnobValue 9, MIDIByte3  
+  endif
+@End
+
+
+
+@TransportButtons
+  if MIDINote > 90 and MIDINote < 94
+    //Play	91, Stop	92, Record	93
+    SendMIDIThruOnCh 8
+  endif
+@End
+  
+  
+
+@UpdateEncoders
+
+  // apc deviceEncoders start @ 16
+  for i = 0 to 7
+    cc =  bankEncoder[i] + (bankOffset * curBank)
+    index = cc + (chanOffset * curChan)
+    
+    // apc receives on channel 0
+    if curChan = 8
+      // set the encoder mode
+      SendMIDICC 0, bankEncoderRing[i], encoderLedType[cc]
+      SendMIDICC 0, bankEncoder[i], ccMaster[cc]
+    else
+      // set the encoder mode
+      SendMIDICC 0, bankEncoderRing[i], encoderLedType[index]
+      SendMIDICC 0, bankEncoder[i], ccValues[index]
+    endif
+  endfor
+  
+  // apc trackEncoders start @ 48
+  for i = 0 to 7
+    cc =  bankEncoder2[i] + (bankOffset * curBank2)
+    index = cc + (chanOffset * curChan)
+    
+    // apc receives on channel 0
+    if curChan = 8
+      // set the encoder mode
+      SendMIDICC 0, bankEconderRing2[i], encoderLedType[cc]
+      SendMIDICC 0, bankEncoder2[i], ccMaster[cc]
+    else
+      // set the encoder mode
+      SendMIDICC 0, bankEconderRing2[i], encoderLedType[cc]
+      SendMIDICC 0, bankEncoder2[i], ccValues[index]
+    endif
+  endfor
+@End
+
+
+
+@Description
+The APC supports 3 modes, in order to program it use the ableton live mode.
+mode = [0x40, 0x41, 0x42]
+
+Buttons send note values in different channels. but all the encoders and master track
+use channel 1. To allow for display updates we will remap channel 1 to 8 and reserve 
+1 for apc communication.
+@End
+
+
+
+
+
+
