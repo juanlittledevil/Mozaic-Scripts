@@ -46,7 +46,4 @@ Repeat the above steps for APC-OUT.moz, saving it as APC-OUT or similar.
 ## Additional Script
 - Consider using the "cc-banks.moz" script for easily mapping knobs to CC messages with Mozaic.
 
-## Support and Contact
-Contact the developer at juanlittledevil@gmail.com for questions or collaborative work.
-
 Enjoy your enhanced APC40 experience with the Mozaic script!
